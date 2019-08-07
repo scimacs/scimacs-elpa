@@ -1,0 +1,5 @@
+# -*- restclient -*-
+#
+GET https://api.gitter.im/v1/rooms
+Authorization: Bearer 7db6060feeb835af1e3b865666033dc61ce84fbf
+Host: api.gitter.im
