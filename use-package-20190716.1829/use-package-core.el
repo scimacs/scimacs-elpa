@@ -651,7 +651,8 @@ extending any keys already present."
                     ,(when (eq use-package-verbose 'debug)
                        `(message ,(format "Compiling package %s" name-string)))
                     ,(unless (plist-get args :no-require)
-                       `(load ,name-string nil t)))))))))
+                       `(unless (featurep ',name-symbol)
+                          (load ,name-string nil t))))))))))
 
     ;; Certain keywords imply :defer, if :demand was not specified.
     (when (and (not (plist-member args :demand))
@@ -988,10 +989,10 @@ The date is returned as a string."
 
 (defun use-package-statistics-time (package)
   "Return the time is took for PACKAGE to load."
-  (+ (float-time (gethash :config-secs package 0))
-     (float-time (gethash :init-secs package 0))
-     (float-time (gethash :preface-secs package 0))
-     (float-time (gethash :use-package-secs package 0))))
+  (+ (float-time (gethash :config-secs package '(0 0 0 0)))
+     (float-time (gethash :init-secs package '(0 0 0 0)))
+     (float-time (gethash :preface-secs package '(0 0 0 0)))
+     (float-time (gethash :use-package-secs package '(0 0 0 0)))))
 
 (defun use-package-statistics-convert (package)
   "Return information about PACKAGE.
@@ -1315,41 +1316,41 @@ meaning:
       args
     (list args)))
 
-(defun use-package-after-count-uses (features)
+(defun use-package-after-count-uses (features*)
   "Count the number of time the body would appear in the result."
-  (cond ((use-package-non-nil-symbolp features)
+  (cond ((use-package-non-nil-symbolp features*)
          1)
-        ((and (consp features)
-              (memq (car features) '(:or :any)))
+        ((and (consp features*)
+              (memq (car features*) '(:or :any)))
          (let ((num 0))
-           (cl-dolist (next (cdr features))
+           (cl-dolist (next (cdr features*))
              (setq num (+ num (use-package-after-count-uses next))))
            num))
-        ((and (consp features)
-              (memq (car features) '(:and :all)))
+        ((and (consp features*)
+              (memq (car features*) '(:and :all)))
          (apply #'max (mapcar #'use-package-after-count-uses
-                              (cdr features))))
-        ((listp features)
-         (use-package-after-count-uses (cons :all features)))))
+                              (cdr features*))))
+        ((listp features*)
+         (use-package-after-count-uses (cons :all features*)))))
 
-(defun use-package-require-after-load (features body)
-  "Generate `eval-after-load' statements to represents FEATURES.
-FEATURES is a list containing keywords `:and' and `:all', where
+(defun use-package-require-after-load (features* body)
+  "Generate `eval-after-load' statements to represents FEATURES*.
+FEATURES* is a list containing keywords `:and' and `:all', where
 no keyword implies `:all'."
   (cond
-   ((use-package-non-nil-symbolp features)
-    `((eval-after-load ',features ',(macroexp-progn body))))
-   ((and (consp features)
-         (memq (car features) '(:or :any)))
+   ((use-package-non-nil-symbolp features*)
+    `((eval-after-load ',features* ',(macroexp-progn body))))
+   ((and (consp features*)
+         (memq (car features*) '(:or :any)))
     (cl-mapcan #'(lambda (x) (use-package-require-after-load x body))
-               (cdr features)))
-   ((and (consp features)
-         (memq (car features) '(:and :all)))
-    (cl-dolist (next (cdr features))
+               (cdr features*)))
+   ((and (consp features*)
+         (memq (car features*) '(:and :all)))
+    (cl-dolist (next (cdr features*))
       (setq body (use-package-require-after-load next body)))
     body)
-   ((listp features)
-    (use-package-require-after-load (cons :all features) body))))
+   ((listp features*)
+    (use-package-require-after-load (cons :all features*) body))))
 
 (defun use-package-handler/:after (name _keyword arg rest state)
   (let ((body (use-package-process-keywords name rest state))
@@ -1419,7 +1420,7 @@ no keyword implies `:all'."
 (defun use-package-handler/:custom-face (name _keyword args rest state)
   "Generate use-package custom-face keyword code."
   (use-package-concat
-   (mapcar #'(lambda (def) `(custom-set-faces (quote ,def))) args)
+   (mapcar #'(lambda (def) `(custom-set-faces (backquote ,def))) args)
    (use-package-process-keywords name rest state)))
 
 ;;;; :init
@@ -1533,6 +1534,7 @@ this file.  Usage:
                  package.  This is useful if the package is being lazily
                  loaded, and you wish to conditionally call functions in your
                  `:init' block that are defined in the package.
+:hook            Specify hook(s) to attach this package to.
 
 :bind            Bind keys, and define autoloads for the bound commands.
 :bind*           Bind keys, and define autoloads for the bound commands,
@@ -1542,7 +1544,7 @@ this file.  Usage:
 :bind-keymap*    Like `:bind-keymap', but overrides all minor mode bindings
 
 :defer           Defer loading of a package -- this is implied when using
-                 `:commands', `:bind', `:bind*', `:mode', `:magic',
+                 `:commands', `:bind', `:bind*', `:mode', `:magic', `:hook',
                  `:magic-fallback', or `:interpreter'.  This can be an integer,
                  to force loading after N seconds of idle time, if the package
                  has not already been loaded.
